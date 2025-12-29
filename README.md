@@ -15,7 +15,16 @@ You need macOS and the following tools:
 
 ## 📥 Usage
 
-### Option 1: Automator Workflow (Recommended)
+**Default directories:**
+```bash
+LOCAL="$HOME/Documents/Obsidian/"
+ICLOUD="$HOME/Library/Mobile Documents/iCloud~md~obsidian/Documents/"
+LOG="$HOME/Library/Logs/obsidian_sync.log"
+SYNC_LOCK="$HOME/Library/Logs/obsidian_sync.lock"
+```
+you can adjust accordingly.
+
+### Option 1️⃣: Automator Workflow (Recommended)
 
 Packing OIFS into a macOS App allows you to launch Obsidian with a single click, completely hiding the terminal window.
 
@@ -25,7 +34,7 @@ Packing OIFS into a macOS App allows you to launch Obsidian with a single click,
 4. Save it as `Obsidian Launcher.app` and move it to your `/Applications` folder.
 5. (Optional) Give it a cool icon! Replace the default Automator icon with the [Obsidian icon](https://obsidian.md/blog/new-obsidian-icon/).
 
-### Option 2: Direct Terminal Execution
+### Option 2️⃣: Direct Terminal Execution
 
 For those who want to monitor the logs in real-time or for debugging.
 
