@@ -62,4 +62,4 @@ If you use Obsidian with iCloud on macOS, you've likely encountered:
 - **⚡️ Atomic Mirroring:** Uses `rsync` with a custom **Atomic Lock** mechanism to prevent race conditions and redundant syncs.
 - **⏳ Debounced Watcher:** Merges multiple file changes into a single `fswatch` sync event (10s window) to save CPU and battery.
 - **🛡️ Zombie Protection:** Built-in `trap` logic ensures all background processes are killed when Obsidian exits.
-- **📝 Structured Logging:** Beautiful, scannable logs to track your sync history.
+- **📝 Structured Logging:** Beautiful, scannable logs to track your sync history (keeping 1000 lines of logs by default).

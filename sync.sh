@@ -117,6 +117,10 @@ start_watcher() {
 
 main() {
   mkdir -p "$(dirname "$LOG")"
+
+  if [ -f "$LOG" ]; then
+    echo "$(tail -n 1000 "$LOG")" > "$LOG"
+  fi
   
   if ! command -v fswatch &> /dev/null; then
       echo "Error: fswatch not found!"
