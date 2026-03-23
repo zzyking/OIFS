@@ -60,6 +60,7 @@ If you use Obsidian with iCloud on macOS, you've likely encountered:
 
 - **⬇️ Smart Presync:** Automatically pulls the latest changes from iCloud to Local before Obsidian opens in an incremental way.
 - **⚡️ Atomic Mirroring:** Uses `rsync` with a custom **Atomic Lock** mechanism to prevent race conditions and redundant syncs.
+- **🧹 Empty Folder Cleanup:** Removes iCloud-side folders that were deleted locally but are still kept alive by ignored metadata such as `.DS_Store`.
 - **⏳ Debounced Watcher:** Merges multiple file changes into a single `fswatch` sync event (10s window) to save CPU and battery.
 - **🛡️ Zombie Protection:** Built-in `trap` logic ensures all background processes are killed when Obsidian exits.
 - **📝 Structured Logging:** Beautiful, scannable logs to track your sync history (keeping 1000 lines of logs by default).

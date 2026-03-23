@@ -31,12 +31,43 @@ run_rsync() {
     "$src" "$dest" >>"$LOG" 2>&1
 }
 
+# Remove directories from iCloud that no longer exist locally and only contain
+# ignored sync artifacts such as .DS_Store.
+prune_deleted_empty_dirs() {
+  local local_root="${LOCAL%/}"
+  local icloud_root="${ICLOUD%/}"
+
+  find "$icloud_root" -depth -type d | while read -r icloud_dir; do
+    local rel_path=""
+    local local_dir=""
+
+    if [ "$icloud_dir" = "$icloud_root" ]; then
+      continue
+    fi
+
+    rel_path="${icloud_dir#"$icloud_root"/}"
+    local_dir="$local_root/$rel_path"
+
+    if [ -e "$local_dir" ]; then
+      continue
+    fi
+
+    find "$icloud_dir" -depth \
+      \( -name ".DS_Store" -o -path "*/.Trash" -o -path "*/.obsidian/workspace" -o -path "*/.obsidian/workspace.json" \) \
+      -exec rm -rf {} + >/dev/null 2>&1
+
+    if rmdir "$icloud_dir" 2>/dev/null; then
+      log_info "🗑️ Removed deleted empty dir from iCloud: $rel_path"
+    fi
+  done
+}
+
 # unified logs
 log_info() {
   echo -e "[$(date '+%F %T')] $1" >>"$LOG"
 }
 
-export -f run_rsync log_info
+export -f run_rsync prune_deleted_empty_dirs log_info
 export LOG SYNC_LOCK LOCAL ICLOUD # Also export path variables
 
 # ------------------------------------------------------------------------------
@@ -66,6 +97,7 @@ pre_sync() {
 final_sync() {
   log_info "🛡️ Final sync: local → iCloud before exit"
   run_rsync "$LOCAL" "$ICLOUD" "true"
+  prune_deleted_empty_dirs
 }
 
 # Background monitoring logic
@@ -93,6 +125,7 @@ start_watcher() {
         
         # Execute function
         run_rsync "$LOCAL" "$ICLOUD" "true"
+        prune_deleted_empty_dirs
         
         log_info "✅ Sync completed" >>"$LOG"
         
@@ -145,4 +178,6 @@ main() {
   cleanup
 }
 
-main
+if [ "${OIFS_SOURCE_ONLY:-0}" != "1" ] && { [ -z "${BASH_SOURCE[0]:-}" ] || [ "${BASH_SOURCE[0]}" = "$0" ]; }; then
+  main "$@"
+fi
