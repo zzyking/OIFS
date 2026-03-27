@@ -8,6 +8,7 @@ LOCAL="$HOME/Documents/Obsidian/"
 ICLOUD="$HOME/Library/Mobile Documents/iCloud~md~obsidian/Documents/"
 LOG="$HOME/Library/Logs/obsidian_sync.log"
 SYNC_LOCK="$HOME/Library/Logs/obsidian_sync.lock"
+WATCHER_PIDS=()
 
 export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
 
@@ -29,6 +30,22 @@ run_rsync() {
     --exclude=".obsidian/workspace" \
     --exclude=".obsidian/workspace.json" \
     "$src" "$dest" >>"$LOG" 2>&1
+}
+
+# Return success when rsync would copy or delete something.
+rsync_has_changes() {
+  local src="$1"
+  local dest="$2"
+  local delete_flag=""
+
+  if [ "$3" = "true" ]; then delete_flag="--delete"; fi
+
+  rsync -ain $delete_flag \
+    --exclude=".DS_Store" \
+    --exclude=".Trash" \
+    --exclude=".obsidian/workspace" \
+    --exclude=".obsidian/workspace.json" \
+    "$src" "$dest" 2>>"$LOG" | grep -q .
 }
 
 # Remove directories from iCloud that no longer exist locally and only contain
@@ -62,12 +79,43 @@ prune_deleted_empty_dirs() {
   done
 }
 
+# Remove local directories that no longer exist in iCloud and only contain
+# machine-specific garbage such as .DS_Store or .Trash.
+prune_deleted_empty_local_dirs() {
+  local local_root="${LOCAL%/}"
+  local icloud_root="${ICLOUD%/}"
+
+  find "$local_root" -depth -type d | while read -r local_dir; do
+    local rel_path=""
+    local icloud_dir=""
+
+    if [ "$local_dir" = "$local_root" ]; then
+      continue
+    fi
+
+    rel_path="${local_dir#"$local_root"/}"
+    icloud_dir="$icloud_root/$rel_path"
+
+    if [ -e "$icloud_dir" ]; then
+      continue
+    fi
+
+    find "$local_dir" -depth \
+      \( -name ".DS_Store" -o -path "*/.Trash" \) \
+      -exec rm -rf {} + >/dev/null 2>&1
+
+    if rmdir "$local_dir" 2>/dev/null; then
+      log_info "🗑️ Removed deleted empty dir from Local: $rel_path"
+    fi
+  done
+}
+
 # unified logs
 log_info() {
   echo -e "[$(date '+%F %T')] $1" >>"$LOG"
 }
 
-export -f run_rsync prune_deleted_empty_dirs log_info
+export -f run_rsync rsync_has_changes prune_deleted_empty_dirs prune_deleted_empty_local_dirs log_info
 export LOG SYNC_LOCK LOCAL ICLOUD # Also export path variables
 
 # ------------------------------------------------------------------------------
@@ -75,7 +123,9 @@ export LOG SYNC_LOCK LOCAL ICLOUD # Also export path variables
 # ------------------------------------------------------------------------------
 cleanup() {
   rm -rf "$SYNC_LOCK"
-  kill $WATCHER_PID 2>/dev/null
+  for pid in "${WATCHER_PIDS[@]}"; do
+    kill "$pid" 2>/dev/null
+  done
   pkill -P $$  # Kill all child processes of the current process
   log_info "🛑 OIFS: Processes cleaned up. Exiting.\n\n"
   exit
@@ -102,34 +152,49 @@ final_sync() {
 
 # Background monitoring logic
 start_watcher() {
-  log_info "👀 Starting background file watcher..."
-  
-  rm -rf "$SYNC_LOCK"
-  export SYNC_LOCK LOCAL ICLOUD LOG
+  local label="$1"
+  local watch_dir="$2"
+  local src="$3"
+  local dest="$4"
+  local delete_flag="$5"
+  local prune_mode="$6"
+  local watcher_pid=""
 
-  fswatch -o "$LOCAL" -l 10 \
+  log_info "👀 Starting watcher: $label"
+
+  fswatch -o "$watch_dir" -l 10 \
     --exclude="\.DS_Store" \
     --exclude="\.Trash" \
-    --exclude="\.obsidian/workspace" | while read -r _; do
-    
+    --exclude="\.obsidian/workspace" \
+    --exclude="\.obsidian/workspace\.json" | while read -r _; do
+
     # 1. Check Obsidian process
     if ! pgrep -x "Obsidian" >/dev/null; then break; fi
+
+    # Skip mirrored or empty events that do not produce real rsync work.
+    if ! rsync_has_changes "$src" "$dest" "$delete_flag"; then
+      continue
+    fi
 
     # Atomic operation: try to create a folder, continue only if successful, failure indicates the lock is being used
     if mkdir "$SYNC_LOCK" 2>/dev/null; then
       (
-        log_info "🔄 Sync Triggered..." >>"$LOG"
-        
-        # Reserved Obsidian write buffer
+        log_info "🔄 Sync Triggered: $label"
+
+        # Reserved write buffer for Obsidian/iCloud flushes
         sleep 2
-        
-        # Execute function
-        run_rsync "$LOCAL" "$ICLOUD" "true"
-        prune_deleted_empty_dirs
-        
-        log_info "✅ Sync completed" >>"$LOG"
-        
-        # Forced cooldown: Lock for an additional 5 seconds after synchronization
+
+        run_rsync "$src" "$dest" "$delete_flag"
+
+        if [ "$prune_mode" = "icloud" ]; then
+          prune_deleted_empty_dirs
+        elif [ "$prune_mode" = "local" ]; then
+          prune_deleted_empty_local_dirs
+        fi
+
+        log_info "✅ Sync completed: $label"
+
+        # Forced cooldown: hold the lock a bit longer to coalesce bursts
         sleep 5
         rm -rf "$SYNC_LOCK"
       ) &
@@ -139,9 +204,10 @@ start_watcher() {
     fi
 
   done &
-  
-  WATCHER_PID=$!
-  log_info "🤖 Watcher started with PID: $WATCHER_PID"
+
+  watcher_pid=$!
+  WATCHER_PIDS+=("$watcher_pid")
+  log_info "🤖 Watcher started with PID: $watcher_pid ($label)"
 }
 
 # ------------------------------------------------------------------------------
@@ -163,7 +229,8 @@ main() {
   rm -rf "$SYNC_LOCK"
 
   pre_sync
-  start_watcher
+  start_watcher "Local → iCloud" "$LOCAL" "$LOCAL" "$ICLOUD" "true" "icloud"
+  start_watcher "iCloud → Local" "$ICLOUD" "$ICLOUD" "$LOCAL" "true" "local"
 
   log_info "📝 Launching Obsidian"
   open -a "Obsidian"
